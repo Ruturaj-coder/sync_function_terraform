@@ -13,50 +13,15 @@ version = “~>3.0”
 
 provider “azurerm” {
 features {}
+subscription_id = “POC-EDPGenAI-2”
 }
 
 # Variables
 
-variable “resource_group_name” {
-description = “Name of the resource group for source storage and function app”
-type        = string
-default     = “rg-blob-sync-source”
-}
-
-variable “destination_resource_group_name” {
-description = “Name of the resource group for destination storage”
-type        = string
-default     = “rg-blob-sync-destination”
-}
-
 variable “location” {
-description = “Azure region for resources”
+description = “Azure region for all resources”
 type        = string
-default     = “East US”
-}
-
-variable “storage_account_1_name” {
-description = “Name of the source storage account”
-type        = string
-default     = “stgsource001”
-}
-
-variable “storage_account_2_name” {
-description = “Name of the destination storage account”
-type        = string
-default     = “stgdest001”
-}
-
-variable “container_name” {
-description = “Name of the container in both storage accounts”
-type        = string
-default     = “synccontainer”
-}
-
-variable “function_app_name” {
-description = “Name of the Function App”
-type        = string
-default     = “func-blob-sync”
+default     = “UK South”
 }
 
 variable “function_zip_path” {
@@ -65,140 +30,156 @@ type        = string
 default     = “./function-app.zip”
 }
 
-# Resource Group for Source Storage and Function App
+# Resource Group 1 - syncterraform1
 
-resource “azurerm_resource_group” “main” {
-name     = var.resource_group_name
+resource “azurerm_resource_group” “syncterraform1” {
+name     = “syncterraform1”
 location = var.location
 }
 
-# Resource Group for Destination Storage
+# Resource Group 2 - syncterraform2
 
-resource “azurerm_resource_group” “destination” {
-name     = var.destination_resource_group_name
+resource “azurerm_resource_group” “syncterraform2” {
+name     = “syncterraform2”
 location = var.location
 }
 
-# Storage Account 1 (Source)
+# Storage Account 1 - terraformstore1 (in syncterraform1)
 
-resource “azurerm_storage_account” “source” {
-name                     = var.storage_account_1_name
-resource_group_name      = azurerm_resource_group.main.name
-location                 = azurerm_resource_group.main.location
-account_tier             = “Standard”
-account_replication_type = “LRS”
+resource “azurerm_storage_account” “terraformstore1” {
+name                          = “terraformstore1”
+resource_group_name           = azurerm_resource_group.syncterraform1.name
+location                      = azurerm_resource_group.syncterraform1.location
+account_tier                  = “Standard”
+account_replication_type      = “GRS”
+account_kind                  = “StorageV2”
+is_hns_enabled               = true
+allow_nested_items_to_be_public = true
+cross_tenant_replication_enabled = true
+public_network_access_enabled = true
 
 blob_properties {
-versioning_enabled = true
-change_feed_enabled = true
+delete_retention_policy {
+days = 0
+}
+container_delete_retention_policy {
+days = 0
+}
+versioning_enabled = false
+change_feed_enabled = false
+}
+
+network_rules {
+default_action = “Allow”
 }
 }
 
-# Storage Account 2 (Destination) - In separate resource group
+# Storage Account 2 - terraformstore2 (in syncterraform2)
 
-resource “azurerm_storage_account” “destination” {
-name                     = var.storage_account_2_name
-resource_group_name      = azurerm_resource_group.destination.name
-location                 = azurerm_resource_group.destination.location
-account_tier             = “Standard”
-account_replication_type = “LRS”
+resource “azurerm_storage_account” “terraformstore2” {
+name                          = “terraformstore2”
+resource_group_name           = azurerm_resource_group.syncterraform2.name
+location                      = azurerm_resource_group.syncterraform2.location
+account_tier                  = “Standard”
+account_replication_type      = “GRS”
+account_kind                  = “StorageV2”
+is_hns_enabled               = true
+allow_nested_items_to_be_public = true
+cross_tenant_replication_enabled = true
+public_network_access_enabled = true
+
+blob_properties {
+delete_retention_policy {
+days = 0
+}
+container_delete_retention_policy {
+days = 0
+}
+versioning_enabled = false
+change_feed_enabled = false
 }
 
-# Container in Source Storage Account
-
-resource “azurerm_storage_container” “source_container” {
-name                  = var.container_name
-storage_account_name  = azurerm_storage_account.source.name
-container_access_type = “private”
+network_rules {
+default_action = “Allow”
+}
 }
 
-# Container in Destination Storage Account
+# Container 1 - container1 (in terraformstore1)
 
-resource “azurerm_storage_container” “destination_container” {
-name                  = var.container_name
-storage_account_name  = azurerm_storage_account.destination.name
-container_access_type = “private”
+resource “azurerm_storage_container” “container1” {
+name                  = “container1”
+storage_account_name  = azurerm_storage_account.terraformstore1.name
+container_access_type = “container”
 }
 
-# App Service Plan for Function App
+# Container 2 - container2 (in terraformstore2)
+
+resource “azurerm_storage_container” “container2” {
+name                  = “container2”
+storage_account_name  = azurerm_storage_account.terraformstore2.name
+container_access_type = “container”
+}
+
+# App Service Plan for Function App (Flex Consumption)
 
 resource “azurerm_service_plan” “function_plan” {
-name                = “plan-${var.function_app_name}”
-resource_group_name = azurerm_resource_group.main.name
-location            = azurerm_resource_group.main.location
+name                = “plan-sync-function”
+resource_group_name = azurerm_resource_group.syncterraform1.name
+location            = azurerm_resource_group.syncterraform1.location
 os_type             = “Linux”
-sku_name            = “Y1”
-}
-
-# Storage Account for Function App
-
-resource “azurerm_storage_account” “function_storage” {
-name                     = “stgfunc${random_string.function_suffix.result}”
-resource_group_name      = azurerm_resource_group.main.name
-location                 = azurerm_resource_group.main.location
-account_tier             = “Standard”
-account_replication_type = “LRS”
-}
-
-# Random string for unique naming
-
-resource “random_string” “function_suffix” {
-length  = 8
-special = false
-upper   = false
+sku_name            = “FC1”
 }
 
 # Function App
 
-resource “azurerm_linux_function_app” “blob_sync” {
-name                = var.function_app_name
-resource_group_name = azurerm_resource_group.main.name
-location            = azurerm_resource_group.main.location
+resource “azurerm_linux_function_app” “sync_function” {
+name                = “sync-function-app”
+resource_group_name = azurerm_resource_group.syncterraform1.name
+location            = azurerm_resource_group.syncterraform1.location
 service_plan_id     = azurerm_service_plan.function_plan.id
-storage_account_name       = azurerm_storage_account.function_storage.name
-storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
+storage_account_name       = azurerm_storage_account.terraformstore1.name
+storage_account_access_key = azurerm_storage_account.terraformstore1.primary_access_key
 
 site_config {
 application_stack {
-python_version = “3.9”
+python_version = “3.11”
 }
 }
 
 app_settings = {
-“FUNCTIONS_WORKER_RUNTIME”       = “python”
-“AzureWebJobsFeatureFlags”      = “EnableWorkerIndexing”
-“SOURCE_STORAGE_CONNECTION”     = azurerm_storage_account.source.primary_connection_string
-“DESTINATION_STORAGE_CONNECTION” = azurerm_storage_account.destination.primary_connection_string
-“SOURCE_CONTAINER_NAME”         = var.container_name
-“DESTINATION_CONTAINER_NAME”    = var.container_name
+“FUNCTIONS_WORKER_RUNTIME”     = “python”
+“AzureWebJobsFeatureFlags”    = “EnableWorkerIndexing”
+“DEST_CONNECTION_STRING”      = azurerm_storage_account.terraformstore2.primary_connection_string
+“DEST_CONTAINER_NAME”         = “container2”
+“FUNCTIONS_EXTENSION_VERSION” = “~4”
 }
 
 zip_deploy_file = var.function_zip_path
 
 depends_on = [
-azurerm_storage_account.function_storage,
+azurerm_storage_account.terraformstore1,
 azurerm_service_plan.function_plan
 ]
 }
 
-# Event Grid System Topic for Storage Account 1
+# Event Grid System Topic for terraformstore1
 
-resource “azurerm_eventgrid_system_topic” “source_storage_topic” {
-name                   = “eg-topic-${var.storage_account_1_name}”
-resource_group_name    = azurerm_resource_group.main.name
-location               = azurerm_resource_group.main.location
-source_arm_resource_id = azurerm_storage_account.source.id
+resource “azurerm_eventgrid_system_topic” “storage_topic” {
+name                   = “eg-topic-terraformstore1”
+resource_group_name    = azurerm_resource_group.syncterraform1.name
+location               = azurerm_resource_group.syncterraform1.location
+source_arm_resource_id = azurerm_storage_account.terraformstore1.id
 topic_type             = “Microsoft.Storage.StorageAccounts”
 }
 
-# Event Grid Subscription for Function App
+# Event Grid Subscription - eventtrigger
 
-resource “azurerm_eventgrid_event_subscription” “blob_sync_subscription” {
-name  = “eg-sub-blob-sync”
-scope = azurerm_eventgrid_system_topic.source_storage_topic.id
+resource “azurerm_eventgrid_event_subscription” “eventtrigger” {
+name  = “eventtrigger”
+scope = azurerm_eventgrid_system_topic.storage_topic.id
 
 azure_function_endpoint {
-function_id = “${azurerm_linux_function_app.blob_sync.id}/functions/BlobSyncFunction”
+function_id = “${azurerm_linux_function_app.sync_function.id}/functions/BlobSyncFunction”
 }
 
 included_event_types = [
@@ -207,54 +188,52 @@ included_event_types = [
 ]
 
 subject_filter {
-subject_begins_with = “/blobServices/default/containers/${var.container_name}/blobs/”
-}
-
-advanced_filter {
-string_contains {
-key    = “subject”
-values = [”/containers/${var.container_name}/”]
-}
+subject_begins_with = “/blobServices/default/containers/container1”
 }
 
 depends_on = [
-azurerm_linux_function_app.blob_sync
+azurerm_linux_function_app.sync_function
 ]
 }
 
 # Outputs
 
-output “destination_resource_group_name” {
-description = “Name of the destination resource group”
-value       = azurerm_resource_group.destination.name
+output “resource_group_1_name” {
+description = “Name of the first resource group”
+value       = azurerm_resource_group.syncterraform1.name
 }
 
-output “source_storage_account_name” {
-description = “Name of the source storage account”
-value       = azurerm_storage_account.source.name
+output “resource_group_2_name” {
+description = “Name of the second resource group”
+value       = azurerm_resource_group.syncterraform2.name
 }
 
-output “destination_storage_account_name” {
-description = “Name of the destination storage account”
-value       = azurerm_storage_account.destination.name
+output “storage_account_1_name” {
+description = “Name of the first storage account”
+value       = azurerm_storage_account.terraformstore1.name
+}
+
+output “storage_account_2_name” {
+description = “Name of the second storage account”
+value       = azurerm_storage_account.terraformstore2.name
 }
 
 output “function_app_name” {
 description = “Name of the Function App”
-value       = azurerm_linux_function_app.blob_sync.name
+value       = azurerm_linux_function_app.sync_function.name
 }
 
 output “function_app_url” {
 description = “URL of the Function App”
-value       = azurerm_linux_function_app.blob_sync.default_hostname
+value       = azurerm_linux_function_app.sync_function.default_hostname
 }
 
-output “source_container_url” {
-description = “URL of the source container”
-value       = “${azurerm_storage_account.source.primary_blob_endpoint}${var.container_name}”
+output “container1_url” {
+description = “URL of container1”
+value       = “${azurerm_storage_account.terraformstore1.primary_blob_endpoint}container1”
 }
 
-output “destination_container_url” {
-description = “URL of the destination container”
-value       = “${azurerm_storage_account.destination.primary_blob_endpoint}${var.container_name}”
+output “container2_url” {
+description = “URL of container2”
+value       = “${azurerm_storage_account.terraformstore2.primary_blob_endpoint}container2”
 }
