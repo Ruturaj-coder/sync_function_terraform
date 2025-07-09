@@ -72,6 +72,10 @@ change_feed_enabled = false
 network_rules {
 default_action = “Allow”
 }
+
+depends_on = [
+azurerm_resource_group.syncterraform1
+]
 }
 
 # Storage Account 2 - terraformstore2 (in syncterraform2)
@@ -102,6 +106,10 @@ change_feed_enabled = false
 network_rules {
 default_action = “Allow”
 }
+
+depends_on = [
+azurerm_resource_group.syncterraform2
+]
 }
 
 # Container 1 - container1 (in terraformstore1)
@@ -110,6 +118,10 @@ resource “azurerm_storage_container” “container1” {
 name                  = “container1”
 storage_account_name  = azurerm_storage_account.terraformstore1.name
 container_access_type = “container”
+
+depends_on = [
+azurerm_storage_account.terraformstore1
+]
 }
 
 # Container 2 - container2 (in terraformstore2)
@@ -118,6 +130,10 @@ resource “azurerm_storage_container” “container2” {
 name                  = “container2”
 storage_account_name  = azurerm_storage_account.terraformstore2.name
 container_access_type = “container”
+
+depends_on = [
+azurerm_storage_account.terraformstore2
+]
 }
 
 # App Service Plan for Function App (Flex Consumption)
@@ -128,6 +144,10 @@ resource_group_name = azurerm_resource_group.syncterraform1.name
 location            = azurerm_resource_group.syncterraform1.location
 os_type             = “Linux”
 sku_name            = “FC1”
+
+depends_on = [
+azurerm_resource_group.syncterraform1
+]
 }
 
 # Function App
@@ -158,6 +178,9 @@ zip_deploy_file = var.function_zip_path
 
 depends_on = [
 azurerm_storage_account.terraformstore1,
+azurerm_storage_account.terraformstore2,
+azurerm_storage_container.container1,
+azurerm_storage_container.container2,
 azurerm_service_plan.function_plan
 ]
 }
@@ -170,6 +193,10 @@ resource_group_name    = azurerm_resource_group.syncterraform1.name
 location               = azurerm_resource_group.syncterraform1.location
 source_arm_resource_id = azurerm_storage_account.terraformstore1.id
 topic_type             = “Microsoft.Storage.StorageAccounts”
+
+depends_on = [
+azurerm_storage_account.terraformstore1
+]
 }
 
 # Event Grid Subscription - eventtrigger
@@ -192,7 +219,9 @@ subject_begins_with = “/blobServices/default/containers/container1”
 }
 
 depends_on = [
-azurerm_linux_function_app.sync_function
+azurerm_eventgrid_system_topic.storage_topic,
+azurerm_linux_function_app.sync_function,
+azurerm_storage_container.container1
 ]
 }
 
